@@ -31,7 +31,7 @@ RNG rng(12345);
 std::vector<std::vector<Point> > contours;
 std::vector<Vec4i> hierarchy;
 
-Rect face, eye_1, eye_2;
+Rect face, eye_1, eye_2, glasses_bb;
 
 Mat imagenOriginal, imageResized;
 
@@ -103,6 +103,10 @@ bool detectFaceAndEyes(Mat frame)
 				face = faces[0];
 				eye_1 = eyes[0];
 				eye_2 = eyes[1];
+
+				glasses_bb = Rect(face.x, face.y + eye_1.y - eye_1.y*0.1, face.width, eye_1.height*1.9);
+
+				return true;
 			}
 		}
 	}
@@ -118,20 +122,28 @@ void drawFaceAndEyes(Mat frame){
 		Point center_face(face.x + face.width*0.5, face.y + face.height*0.5);
 		ellipse(frame, center_face, Size(face.width*0.02, face.height*0.02), 0, 0, 360, Scalar(255, 0, 255), -1, 8, 0);
 
-		Point center_1(face.x + eye_1.x + eye_1.width*0.5, face.y + eye_1.y + eye_1.height*0.5);
-		int radius = cvRound((eye_1.width + eye_1.height)*0.25);
-		circle(frame, center_1, radius, Scalar(255, 0, 0), 4, 8, 0);
+		/*Point center_1(face.x + eye_1.x + eye_1.width*0.5, face.y + eye_1.y + eye_1.height*0.5);
+		int radius = cvRound((eye_1.width + eye_1.height)*0.4);
+		circle(frame, center_1, radius, Scalar(255, 0, 0), 2, 8, 0);
 
 		Point center_2(face.x + eye_2.x + eye_2.width*0.5, face.y + eye_2.y + eye_2.height*0.5);
-		int radius_2 = cvRound((eye_2.width + eye_2.height)*0.25);
-		circle(frame, center_2, radius, Scalar(255, 0, 0), 4, 8, 0);
+		int radius_2 = cvRound((eye_2.width + eye_2.height)*0.4);
+		circle(frame, center_2, radius, Scalar(255, 0, 0), 2, 8, 0);*/
 
-		Point eye_center = (center_2 + center_1)/2.f;
-		ellipse(frame, eye_center, Size(face.width*0.02, face.height*0.02), 0, 0, 360, Scalar(255, 0, 255), -1, 8, 0);
+		Rect eye_1_rect(face.x + eye_1.x, face.y + eye_1.y, eye_1.width, eye_1.height);
+		Rect eye_2_rect(face.x + eye_2.x, face.y + eye_2.y, eye_2.width, eye_2.height);
+
+		rectangle(frame, eye_1_rect, Scalar(0, 0, 255), 2, 8, 0);
+		rectangle(frame, eye_2_rect, Scalar(0, 0, 255), 2, 8, 0);
+
+		rectangle(frame, glasses_bb, Scalar(0, 255, 0), 2, 8, 0);
+
+		//Point eye_center = (center_2 + center_1)/2.f;
+		//ellipse(frame, eye_center, Size(face.width*0.02, face.height*0.02), 0, 0, 360, Scalar(255, 0, 255), -1, 8, 0);
 
 		//std::cout << "Coef: " << (eye_center.x - center_face.x)/(eye_center.y - center_face.y) << std::endl;
 
-		line(frame, center_face, eye_center, Scalar(255, 0, 0), 4, 8, 0);
+		//line(frame, center_face, eye_center, Scalar(255, 0, 0), 2, 8, 0);
 	}
 }
 
@@ -139,10 +151,12 @@ void drawScene(){
 	dst.copyTo(imageResized);
 	
 	Mat drawing = Mat::zeros(imageResized.size(), CV_8UC3);
+	//Mat drawing = src;
+
 	for (int i = 0; i< contours.size(); i++)
 	{
 		Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
-		drawContours(drawing, contours, i, color, 1, 8, hierarchy, 0, Point(face.x, face.y));
+		drawContours(drawing, contours, i, color, 1, 8, hierarchy, 0, Point(glasses_bb.x, glasses_bb.y));
 	}
 
 	drawFaceAndEyes(drawing);
@@ -166,7 +180,7 @@ void CannyThreshold(int, void*)
 
 	src.copyTo(dst, detected_edges);
 
-	detected_edges = detected_edges(face);
+	detected_edges = detected_edges(glasses_bb);
 
 	findContours(detected_edges, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0));
 	drawScene();
@@ -176,7 +190,7 @@ void CannyThreshold(int, void*)
 /** @function main */
 int main(int argc, char** argv)
 {
-	char* img_name = "../glasses_model_13.jpg";
+	char* img_name = "../glasses_model_12.jpg";
 
 	CvCapture* capture;
 
