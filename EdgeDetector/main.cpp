@@ -29,6 +29,7 @@ CascadeClassifier face_cascade;
 CascadeClassifier eyes_cascade;
 RNG rng(12345);
 std::vector<std::vector<Point> > contours;
+std::vector<Rect> bd_rects;
 std::vector<Vec4i> hierarchy;
 
 Rect face, eye_1, eye_2, glasses_bb;
@@ -76,6 +77,44 @@ static void onMouse(int event, int x, int y, int , void*)
 		dst = zoomIn(x, y);
 	else if (event == CV_EVENT_RBUTTONDOWN)
 		dst = zoomOut(x, y);
+}
+
+void clearSmallContours(float max_width, float max_height){
+	if (contours.size() < 1)
+		return;
+
+	int last_index = contours.size() - 1;
+
+	bd_rects.clear();
+	Rect bd_rect;
+
+	Point center_eye_1(face.x + eye_1.x + eye_1.width*0.5f, face.y + eye_1.y + eye_1.height*0.5f);
+	Point center_eye_2(face.x + eye_2.x + eye_2.width*0.5f, face.y + eye_2.y + eye_2.height*0.5f);
+
+	for (int i = 0; i < contours.size(); i++){
+		if (i == last_index){
+			break;
+		}
+
+		bd_rect = boundingRect(Mat(contours[i]));
+		bd_rect.x += glasses_bb.x;
+		bd_rect.y += glasses_bb.y;
+
+		if (bd_rect.width < max_width / 2.f || bd_rect.height > max_height*0.75 || (bd_rect.width < max_width && ((bd_rect.contains(center_eye_1) || bd_rect.contains(center_eye_2))))){
+			std::swap(contours[i], contours[last_index]);
+			last_index--;
+			i--;
+		}else{
+			bd_rects.push_back(bd_rect);
+		}
+	}
+
+	int nb_of_pops = contours.size() - 1 - last_index;
+
+	for (int i = 0; i < nb_of_pops; i++){
+		contours.pop_back();
+	}
+
 }
 
 bool detectFaceAndEyes(Mat frame)
@@ -133,8 +172,8 @@ void drawFaceAndEyes(Mat frame){
 		Rect eye_1_rect(face.x + eye_1.x, face.y + eye_1.y, eye_1.width, eye_1.height);
 		Rect eye_2_rect(face.x + eye_2.x, face.y + eye_2.y, eye_2.width, eye_2.height);
 
-		rectangle(frame, eye_1_rect, Scalar(0, 0, 255), 2, 8, 0);
-		rectangle(frame, eye_2_rect, Scalar(0, 0, 255), 2, 8, 0);
+		//rectangle(frame, eye_1_rect, Scalar(0, 0, 255), 2, 8, 0);
+		//rectangle(frame, eye_2_rect, Scalar(0, 0, 255), 2, 8, 0);
 
 		rectangle(frame, glasses_bb, Scalar(0, 255, 0), 2, 8, 0);
 
@@ -153,11 +192,16 @@ void drawScene(){
 	Mat drawing = Mat::zeros(imageResized.size(), CV_8UC3);
 	//Mat drawing = src;
 
-	for (int i = 0; i< contours.size(); i++)
+	for (int i = 0; i < contours.size(); i++)
 	{
 		Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
 		drawContours(drawing, contours, i, color, 1, 8, hierarchy, 0, Point(glasses_bb.x, glasses_bb.y));
 	}
+
+	/*for (int i = 0; i < bd_rects.size(); i++){
+		Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
+		rectangle(drawing, bd_rects[i], color, 2, 8, 0);
+	}*/
 
 	drawFaceAndEyes(drawing);
 	imshow(window_name, drawing);
@@ -183,6 +227,7 @@ void CannyThreshold(int, void*)
 	detected_edges = detected_edges(glasses_bb);
 
 	findContours(detected_edges, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0));
+	clearSmallContours(eye_1.width, glasses_bb.height);
 	drawScene();
 	//imshow(window_name, dst);
 }
@@ -190,7 +235,7 @@ void CannyThreshold(int, void*)
 /** @function main */
 int main(int argc, char** argv)
 {
-	char* img_name = "../glasses_model_12.jpg";
+	char* img_name = "../glasses_model_18.jpg";
 
 	CvCapture* capture;
 
