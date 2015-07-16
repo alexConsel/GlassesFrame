@@ -97,8 +97,8 @@ void clearSmallContours(float max_width, float max_height){
 		}
 
 		bd_rect = boundingRect(Mat(contours[i]));
-		bd_rect.x += glasses_bb.x;
-		bd_rect.y += glasses_bb.y;
+		//bd_rect.x += glasses_bb.x;
+		//bd_rect.y += glasses_bb.y;
 
 		if (bd_rect.width < max_width / 2.f || bd_rect.height > max_height*0.75 || (bd_rect.width < max_width && ((bd_rect.contains(center_eye_1) || bd_rect.contains(center_eye_2))))){
 			std::swap(contours[i], contours[last_index]);
@@ -109,12 +109,53 @@ void clearSmallContours(float max_width, float max_height){
 		}
 	}
 
-	int nb_of_pops = contours.size() - 1 - last_index;
+	int nb_of_pops = contours.size() - last_index;
 
 	for (int i = 0; i < nb_of_pops; i++){
 		contours.pop_back();
 	}
 
+}
+
+Point projectPoint(Point point, Point vecOrigin){
+	Vec2f v1(point.x - vecOrigin.x, point.y - vecOrigin.y);
+	//Vec2f vecdiff = 2.f*axis.dot(v1.dot(axis));
+
+	Point result = Point(vecOrigin.x * 2 - point.x, point.y);
+
+	return result;
+}
+
+bool hasClosePoint(Point point, float threshold){
+	for (int i = 0; i < contours.size(); i++){
+		for (int j = 0; j < contours[i].size(); j++){
+			//std::cout << norm(contours[i][j] - point)<<std::endl;
+			if (norm(contours[i][j] - point) < threshold)
+				return true;
+		}
+	}
+	return false;
+}
+
+
+void clearUnreflectedPoints(float threshold){
+	Point reflectedPoint;
+
+	Point axisEnd(face.x + face.width*0.5, face.y + face.height);
+	Point axisOrigin(face.x + face.width*0.5, face.y);
+
+	Vec2f axis(axisEnd.x - axisOrigin.x, axisEnd.y - axisOrigin.y);
+
+	for (int i = 0; i < contours.size(); i++){
+		for (int j = 0; j < contours[i].size(); j++){
+			reflectedPoint = projectPoint(contours[i][j], axisOrigin);
+			if (!hasClosePoint(reflectedPoint, threshold)){
+				std::swap(contours[i][j], contours[i].back());
+				contours[i].pop_back();
+				j--;
+			}
+		}
+	}
 }
 
 bool detectFaceAndEyes(Mat frame)
@@ -182,7 +223,10 @@ void drawFaceAndEyes(Mat frame){
 
 		//std::cout << "Coef: " << (eye_center.x - center_face.x)/(eye_center.y - center_face.y) << std::endl;
 
-		//line(frame, center_face, eye_center, Scalar(255, 0, 0), 2, 8, 0);
+		Point pt1(face.x + face.width*0.5, face.y + face.height);
+		Point pt2(face.x + face.width*0.5, face.y);
+
+		line(frame, pt1, pt2, Scalar(255, 0, 0), 2, 8, 0);
 	}
 }
 
@@ -195,7 +239,10 @@ void drawScene(){
 	for (int i = 0; i < contours.size(); i++)
 	{
 		Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
-		drawContours(drawing, contours, i, color, 1, 8, hierarchy, 0, Point(glasses_bb.x, glasses_bb.y));
+		//drawContours(drawing, contours, i, color, 1, 8, hierarchy, 0, Point(0,0));
+		for (int j = 0; j < contours[i].size(); j++){
+			ellipse(drawing, contours[i][j], Size(face.width*0.005, face.height*0.005), 0, 0, 360, Scalar(255, 255, 0), -1, 8, 0);
+		}
 	}
 
 	/*for (int i = 0; i < bd_rects.size(); i++){
@@ -226,8 +273,9 @@ void CannyThreshold(int, void*)
 
 	detected_edges = detected_edges(glasses_bb);
 
-	findContours(detected_edges, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0));
+	findContours(detected_edges, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(glasses_bb.x, glasses_bb.y));
 	clearSmallContours(eye_1.width, glasses_bb.height);
+	clearUnreflectedPoints(5.f);
 	drawScene();
 	//imshow(window_name, dst);
 }
@@ -235,7 +283,7 @@ void CannyThreshold(int, void*)
 /** @function main */
 int main(int argc, char** argv)
 {
-	char* img_name = "../glasses_model_18.jpg";
+	char* img_name = "../glasses_model_15.jpg";
 
 	CvCapture* capture;
 
