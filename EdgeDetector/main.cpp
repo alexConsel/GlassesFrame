@@ -17,7 +17,7 @@ Mat dst, detected_edges;
 Mat faceROI;
 
 int edgeThresh = 1;
-int lowThreshold;
+int lowThreshold = 50, lowSThreshold;
 int const max_lowThreshold = 100;
 int ratio = 3;
 int kernel_size = 3;
@@ -31,6 +31,8 @@ RNG rng(12345);
 std::vector<std::vector<Point> > contours;
 std::vector<Rect> bd_rects;
 std::vector<Vec4i> hierarchy;
+
+char* img_name = "../glasses_model_12.jpg";
 
 Rect face, eye_1, eye_2, glasses_bb;
 
@@ -158,6 +160,72 @@ void clearUnreflectedPoints(float threshold){
 	}
 }
 
+void clearUnreflectedContours(float threshold, float minSimilarity){
+	Point reflectedPoint;
+
+	Point axisEnd(face.x + face.width*0.5, face.y + face.height);
+	Point axisOrigin(face.x + face.width*0.5, face.y);
+
+	Vec2f axis(axisEnd.x - axisOrigin.x, axisEnd.y - axisOrigin.y);
+
+	float numOfPoints = 0, numOfSharedPoints = 0;
+	float similarity = 0;
+
+	int last_index = contours.size();
+
+	for (int i = 0; i < last_index; i++){
+		numOfPoints = contours[i].size();
+		numOfSharedPoints = 0;
+		for (int j = 0; j < contours[i].size(); j++){
+			reflectedPoint = projectPoint(contours[i][j], axisOrigin);
+			if (hasClosePoint(reflectedPoint, threshold)){
+				numOfSharedPoints++;
+			}
+		}
+
+		similarity = numOfSharedPoints / numOfPoints;
+		if (similarity < minSimilarity){
+			std::swap(contours[i], contours[last_index-1]);
+			last_index--;
+			i--;
+		}
+	}
+
+	int nbOfPop = contours.size() - last_index;
+
+	for (int i = 0; i < nbOfPop; i++){
+		contours.pop_back();
+	}
+
+	/*Point reflectedPoint;
+
+	Point axisEnd(face.x + face.width*0.5, face.y + face.height);
+	Point axisOrigin(face.x + face.width*0.5, face.y);
+
+	Vec2f axis(axisEnd.x - axisOrigin.x, axisEnd.y - axisOrigin.y);
+
+	float numOfPoints = 0, numOfSharedPoints = 0;
+	float similarity = 0;
+
+	for (int i = 0; i < contours.size(); i++){
+		numOfPoints = contours[i].size();
+		numOfSharedPoints = 0;
+		for (int j = 0; j < contours[i].size(); j++){
+			reflectedPoint = projectPoint(contours[i][j], axisOrigin);
+			if (hasClosePoint(reflectedPoint, threshold)){
+				numOfSharedPoints++;
+			}
+		}
+
+		similarity = numOfSharedPoints / numOfPoints;
+		if (similarity < minSimilarity){
+			std::swap(contours[i], contours.back());
+			contours.pop_back();
+			i--;
+		}
+	}*/
+}
+
 bool detectFaceAndEyes(Mat frame)
 {
 	std::vector<Rect> faces;
@@ -233,16 +301,17 @@ void drawFaceAndEyes(Mat frame){
 void drawScene(){
 	dst.copyTo(imageResized);
 	
-	Mat drawing = Mat::zeros(imageResized.size(), CV_8UC3);
-	//Mat drawing = src;
+	//Mat drawing = Mat::zeros(imageResized.size(), CV_8UC3);
+	Mat drawing = imread(img_name);
+	///Mat drawing(src);
 
 	for (int i = 0; i < contours.size(); i++)
 	{
 		Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
-		//drawContours(drawing, contours, i, color, 1, 8, hierarchy, 0, Point(0,0));
-		for (int j = 0; j < contours[i].size(); j++){
-			ellipse(drawing, contours[i][j], Size(face.width*0.005, face.height*0.005), 0, 0, 360, Scalar(255, 255, 0), -1, 8, 0);
-		}
+		drawContours(drawing, contours, i, color, 2, 8, hierarchy, 0, Point(0,0));
+		//for (int j = 0; j < contours[i].size(); j++){
+		//	ellipse(drawing, contours[i][j], Size(face.width*0.005, face.height*0.005), 0, 0, 360, Scalar(255, 255, 0), -1, 8, 0);
+		//}
 	}
 
 	/*for (int i = 0; i < bd_rects.size(); i++){
@@ -274,17 +343,25 @@ void CannyThreshold(int, void*)
 	detected_edges = detected_edges(glasses_bb);
 
 	findContours(detected_edges, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(glasses_bb.x, glasses_bb.y));
-	clearSmallContours(eye_1.width, glasses_bb.height);
-	clearUnreflectedPoints(5.f);
+	//clearSmallContours(eye_1.width, glasses_bb.height);
+	//clearUnreflectedPoints(5.f);
+	clearUnreflectedContours(5.f, lowSThreshold/100.f);
 	drawScene();
 	//imshow(window_name, dst);
+}
+
+void SimilarityThreshold(int, void*)
+{
+	findContours(detected_edges, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(glasses_bb.x, glasses_bb.y));
+	//clearSmallContours(eye_1.width, glasses_bb.height);
+	//clearUnreflectedPoints(5.f);
+	clearUnreflectedContours(5.f, lowSThreshold/100.f);
+	drawScene();
 }
 
 /** @function main */
 int main(int argc, char** argv)
 {
-	char* img_name = "../glasses_model_15.jpg";
-
 	CvCapture* capture;
 
 	//-- 1. Load the cascades
@@ -311,7 +388,9 @@ int main(int argc, char** argv)
 	namedWindow(window_name, CV_WINDOW_AUTOSIZE);
 
 	/// Create a Trackbar for user to enter threshold
-	createTrackbar("Min Threshold:", window_name, &lowThreshold, max_lowThreshold, CannyThreshold);
+	createTrackbar("Canny Threshold:", window_name, &lowThreshold, max_lowThreshold, CannyThreshold);
+	createTrackbar("Similarity Threshold:", window_name, &lowSThreshold, max_lowThreshold, SimilarityThreshold);
+	//createButton("Tick", CheckBox, NULL, CV_CHECKBOX, 0);
 
 	detectFaceAndEyes(imagenOriginal);
 
