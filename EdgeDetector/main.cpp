@@ -29,10 +29,11 @@ CascadeClassifier face_cascade;
 CascadeClassifier eyes_cascade;
 RNG rng(12345);
 std::vector<std::vector<Point> > contours;
+std::vector<std::vector<Point> >hull;
 std::vector<Rect> bd_rects;
 std::vector<Vec4i> hierarchy;
 
-char* img_name = "../glasses_model_12.jpg";
+char* img_name = "../glasses_model_18.jpg";
 
 Rect face, eye_1, eye_2, glasses_bb;
 
@@ -116,7 +117,31 @@ void clearSmallContours(float max_width, float max_height){
 	for (int i = 0; i < nb_of_pops; i++){
 		contours.pop_back();
 	}
+}
 
+void clearContoursNotContainingEyes(){
+	if (contours.size() < 1)
+		return;
+
+	int last_index = contours.size() - 1;
+
+	bd_rects.clear();
+	Rect bd_rect;
+
+	Point center_eye_1(face.x + eye_1.x + eye_1.width*0.5f, face.y + eye_1.y + eye_1.height*0.5f);
+	Point center_eye_2(face.x + eye_2.x + eye_2.width*0.5f, face.y + eye_2.y + eye_2.height*0.5f);
+
+	for (int i = 0; i < contours.size(); i++){
+		bd_rect = boundingRect(Mat(contours[i]));
+
+		if (bd_rect.contains(center_eye_1) || bd_rect.contains(center_eye_2)){
+			bd_rects.push_back(bd_rect);
+		}else{
+			std::swap(contours[i], contours.back());
+			contours.pop_back();
+			i--;
+		}
+	}
 }
 
 Point projectPoint(Point point, Point vecOrigin){
@@ -308,11 +333,13 @@ void drawScene(){
 	for (int i = 0; i < contours.size(); i++)
 	{
 		Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
-		drawContours(drawing, contours, i, color, 2, 8, hierarchy, 0, Point(0,0));
+		//drawContours(drawing, contours, i, color, 1, 8, hierarchy, 0, Point(0,0));
+		drawContours(drawing, hull, i, color, 2, 8, std::vector<Vec4i>(), 0, Point());
 		//for (int j = 0; j < contours[i].size(); j++){
 		//	ellipse(drawing, contours[i][j], Size(face.width*0.005, face.height*0.005), 0, 0, 360, Scalar(255, 255, 0), -1, 8, 0);
 		//}
 	}
+
 
 	/*for (int i = 0; i < bd_rects.size(); i++){
 		Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
@@ -321,6 +348,25 @@ void drawScene(){
 
 	drawFaceAndEyes(drawing);
 	imshow(window_name, drawing);
+}
+
+void getConvexHulls(){
+	hull.clear();
+	hull.resize(contours.size());
+	for (int i = 0; i < contours.size(); i++)
+	{
+		convexHull(Mat(contours[i]), hull[i], false);
+	}
+}
+
+void setupAndDraw(){
+	findContours(detected_edges, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(glasses_bb.x, glasses_bb.y));
+	//clearSmallContours(eye_1.width, glasses_bb.height);
+	//clearUnreflectedPoints(5.f);
+	clearUnreflectedContours(5.f, lowSThreshold / 100.f);
+	clearContoursNotContainingEyes();
+	getConvexHulls();
+	drawScene();
 }
 
 /**
@@ -342,21 +388,12 @@ void CannyThreshold(int, void*)
 
 	detected_edges = detected_edges(glasses_bb);
 
-	findContours(detected_edges, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(glasses_bb.x, glasses_bb.y));
-	//clearSmallContours(eye_1.width, glasses_bb.height);
-	//clearUnreflectedPoints(5.f);
-	clearUnreflectedContours(5.f, lowSThreshold/100.f);
-	drawScene();
-	//imshow(window_name, dst);
+	setupAndDraw();
 }
 
 void SimilarityThreshold(int, void*)
 {
-	findContours(detected_edges, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(glasses_bb.x, glasses_bb.y));
-	//clearSmallContours(eye_1.width, glasses_bb.height);
-	//clearUnreflectedPoints(5.f);
-	clearUnreflectedContours(5.f, lowSThreshold/100.f);
-	drawScene();
+	setupAndDraw();
 }
 
 /** @function main */
