@@ -17,7 +17,7 @@ Mat dst, detected_edges;
 Mat faceROI;
 
 int edgeThresh = 1;
-int lowThreshold = 50, lowSThreshold;
+int lowThreshold = 10, lowSThreshold = 100;
 int const max_lowThreshold = 100;
 int ratio = 3;
 int kernel_size = 3;
@@ -33,13 +33,15 @@ std::vector<std::vector<Point> >hull;
 std::vector<Rect> bd_rects;
 std::vector<Vec4i> hierarchy;
 
-char* img_name = "../glasses_model_18.jpg";
+char* img_name = "../glasses_model_12.jpg";
 
 Rect face, eye_1, eye_2, glasses_bb;
 
 Mat imagenOriginal, imageResized;
 
 int mousex, mousey;
+
+float eye_error = 1.25;
 
 Mat zoomIn(int x, int y)
 {
@@ -82,7 +84,7 @@ static void onMouse(int event, int x, int y, int , void*)
 		dst = zoomOut(x, y);
 }
 
-void clearSmallContours(float max_width, float max_height){
+void clearSmallContours(float max_width, float max_height, float eye_height, float eye_error){
 	if (contours.size() < 1)
 		return;
 
@@ -103,7 +105,7 @@ void clearSmallContours(float max_width, float max_height){
 		//bd_rect.x += glasses_bb.x;
 		//bd_rect.y += glasses_bb.y;
 
-		if (bd_rect.width < max_width / 2.f || bd_rect.height > max_height*0.75 || (bd_rect.width < max_width && ((bd_rect.contains(center_eye_1) || bd_rect.contains(center_eye_2))))){
+		if (bd_rect.width < max_width*eye_error || bd_rect.height > max_height*0.75 || bd_rect.height < eye_height*eye_error || (bd_rect.width < max_width/* && ((bd_rect.contains(center_eye_1) || bd_rect.contains(center_eye_2)))*/)){
 			std::swap(contours[i], contours[last_index]);
 			last_index--;
 			i--;
@@ -117,6 +119,34 @@ void clearSmallContours(float max_width, float max_height){
 	for (int i = 0; i < nb_of_pops; i++){
 		contours.pop_back();
 	}
+}
+
+void selectBiggestContour(){
+	if (contours.size() < 2)
+		return;
+	
+	Rect bd_rect;
+
+	bd_rect = boundingRect(Mat(contours[0]));
+
+	float max_width = bd_rect.width, max_height = bd_rect.height, big_index = 0;
+
+	for (int i = 1; i < contours.size(); i++){
+
+		bd_rect = boundingRect(Mat(contours[i]));
+
+		if (bd_rect.height > max_height && bd_rect.width > max_width){
+			big_index = i;
+			max_height = bd_rect.height;
+			max_width = bd_rect.width;
+		}
+	}
+
+	std::swap(contours[big_index], contours[0]);
+
+	while (contours.size() > 1)
+		contours.pop_back();
+
 }
 
 void clearContoursNotContainingEyes(){
@@ -134,7 +164,7 @@ void clearContoursNotContainingEyes(){
 	for (int i = 0; i < contours.size(); i++){
 		bd_rect = boundingRect(Mat(contours[i]));
 
-		if (bd_rect.contains(center_eye_1) || bd_rect.contains(center_eye_2)){
+		if ((bd_rect.contains(center_eye_1) || bd_rect.contains(center_eye_2)) && !(bd_rect.contains(center_eye_1) && bd_rect.contains(center_eye_2))){
 			bd_rects.push_back(bd_rect);
 		}else{
 			std::swap(contours[i], contours.back());
@@ -359,14 +389,14 @@ void getConvexHulls(){
 	}
 }
 
-void setupAndDraw(){
+void setupScene(){
 	findContours(detected_edges, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(glasses_bb.x, glasses_bb.y));
-	//clearSmallContours(eye_1.width, glasses_bb.height);
 	//clearUnreflectedPoints(5.f);
 	clearUnreflectedContours(5.f, lowSThreshold / 100.f);
 	clearContoursNotContainingEyes();
+	clearSmallContours(eye_1.width, glasses_bb.height, eye_1.height, eye_error);
+	selectBiggestContour();
 	getConvexHulls();
-	drawScene();
 }
 
 /**
@@ -388,12 +418,34 @@ void CannyThreshold(int, void*)
 
 	detected_edges = detected_edges(glasses_bb);
 
-	setupAndDraw();
+	setupScene();
+	drawScene();
 }
 
 void SimilarityThreshold(int, void*)
 {
-	setupAndDraw();
+	setupScene();
+	drawScene();
+}
+
+void searchForGlassesFrame(){
+	bool foundFrame = false;
+	
+	while (!foundFrame && eye_error > 1){
+		while (contours.size() < 1 && lowSThreshold > 1){
+			lowSThreshold -= 5;
+			setupScene();
+			std::cout << lowSThreshold << std::endl;
+		}
+		if (contours.size() > 0)
+			foundFrame = true;
+		else{
+			eye_error -= 0.05;
+			lowSThreshold = 100;
+		}
+	}
+
+	drawScene();
 }
 
 /** @function main */
@@ -433,6 +485,8 @@ int main(int argc, char** argv)
 
 	/// Show the image
 	CannyThreshold(0, 0);
+
+	searchForGlassesFrame();
 
 	/*setMouseCallback(window_name, onMouse, 0);
 	do
