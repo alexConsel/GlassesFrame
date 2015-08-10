@@ -17,7 +17,7 @@ Mat dst, detected_edges;
 Mat faceROI;
 
 int edgeThresh = 1;
-int lowThreshold = 10, lowSThreshold = 100;
+int lowThreshold = 100, lowSThreshold = 80;
 int const max_lowThreshold = 100;
 int ratio = 3;
 int kernel_size = 3;
@@ -30,18 +30,18 @@ CascadeClassifier eyes_cascade;
 RNG rng(12345);
 std::vector<std::vector<Point> > contours;
 std::vector<std::vector<Point> >hull;
+std::vector<std::vector<Point> >potential_hull;
+std::vector<std::vector<Point> >big_hull;
 std::vector<Rect> bd_rects;
 std::vector<Vec4i> hierarchy;
 
-char* img_name = "../glasses_model_12.jpg";
+char* img_name = "../glasses_model_15.jpg";
 
 Rect face, eye_1, eye_2, glasses_bb;
 
 Mat imagenOriginal, imageResized;
 
 int mousex, mousey;
-
-float eye_error = 1.25;
 
 Mat zoomIn(int x, int y)
 {
@@ -84,7 +84,7 @@ static void onMouse(int event, int x, int y, int , void*)
 		dst = zoomOut(x, y);
 }
 
-void clearSmallContours(float max_width, float max_height, float eye_height, float eye_error){
+void clearSmallContours(float max_width, float max_height, float eye_height){
 	if (contours.size() < 1)
 		return;
 
@@ -105,7 +105,7 @@ void clearSmallContours(float max_width, float max_height, float eye_height, flo
 		//bd_rect.x += glasses_bb.x;
 		//bd_rect.y += glasses_bb.y;
 
-		if (bd_rect.width < max_width*eye_error || bd_rect.height > max_height*0.75 || bd_rect.height < eye_height*eye_error || (bd_rect.width < max_width/* && ((bd_rect.contains(center_eye_1) || bd_rect.contains(center_eye_2)))*/)){
+		if (bd_rect.height > max_height*0.75 || (bd_rect.width < max_width)){
 			std::swap(contours[i], contours[last_index]);
 			last_index--;
 			i--;
@@ -147,6 +147,75 @@ void selectBiggestContour(){
 	while (contours.size() > 1)
 		contours.pop_back();
 
+}
+
+void selectBiggestConvex(){
+	if (potential_hull.size() < 2){
+		if (potential_hull.size() > 0){
+			big_hull.push_back(potential_hull[0]);
+		}
+		return;
+	}
+
+	big_hull.clear();
+	double max_area = 0;
+	int big_index = 0;
+
+	std::cout << "Nb of hulls: " << potential_hull.size() << std::endl;
+
+	for (int j = 0; j < potential_hull.size(); j++){
+		double area = 0;
+		for (int i = 0; i < potential_hull[j].size(); i++){
+			int next_i = (i + 1) % (potential_hull[j].size());
+			double dX = potential_hull[j][next_i].x - potential_hull[j][i].x;
+			double avgY = (potential_hull[j][next_i].y + potential_hull[j][i].y) / 2.f;
+			area += dX*avgY;  // This is the integration step.
+		}
+		area = abs(area);
+		std::cout << area << std::endl;
+		if (area > max_area){
+			big_index = j;
+			max_area = area;
+		}
+	}
+
+	std::cout << "Big Index: " << big_index << std::endl;
+	big_hull.push_back(potential_hull[big_index]);
+	//if (big_index != 0)
+	//	std::swap(hull[big_index], hull[0]);*/
+}
+
+void selectPotentialConvex(){
+	std::cout << hull.size() << std::endl;
+	if (hull.size() < 2){
+		if (hull.size() > 0){
+			potential_hull.push_back(hull[0]);
+		}
+		return;
+	}
+	double max_area = 0;
+	int big_index = 0;
+
+	for (int j = 0; j < hull.size(); j++){
+		double area = 0;
+		for (int i = 0; i < hull[j].size(); i++){
+			int next_i = (i + 1) % (hull[j].size());
+			double dX = hull[j][next_i].x - hull[j][i].x;
+			double avgY = (hull[j][next_i].y + hull[j][i].y) / 2.f;
+			area += dX*avgY;  // This is the integration step.
+		}
+		area = abs(area);
+		std::cout << area << std::endl;
+		if (area > max_area){
+			big_index = j;
+			max_area = area;
+		}
+	}
+
+	std::cout << "Big Index: " << big_index << std::endl;
+	potential_hull.push_back(hull[big_index]);
+	//if (big_index != 0)
+	//	std::swap(hull[big_index], hull[0]);*/
 }
 
 void clearContoursNotContainingEyes(){
@@ -360,7 +429,12 @@ void drawScene(){
 	Mat drawing = imread(img_name);
 	///Mat drawing(src);
 
-	for (int i = 0; i < contours.size(); i++)
+	if (big_hull.size() > 0){
+		Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
+		drawContours(drawing, big_hull, 0, color, 2, 8, std::vector<Vec4i>(), 0, Point());
+	}
+
+	/*for (int i = 0; i < contours.size(); i++)
 	{
 		Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
 		//drawContours(drawing, contours, i, color, 1, 8, hierarchy, 0, Point(0,0));
@@ -368,7 +442,7 @@ void drawScene(){
 		//for (int j = 0; j < contours[i].size(); j++){
 		//	ellipse(drawing, contours[i][j], Size(face.width*0.005, face.height*0.005), 0, 0, 360, Scalar(255, 255, 0), -1, 8, 0);
 		//}
-	}
+	}*/
 
 
 	/*for (int i = 0; i < bd_rects.size(); i++){
@@ -391,11 +465,10 @@ void getConvexHulls(){
 
 void setupScene(){
 	findContours(detected_edges, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(glasses_bb.x, glasses_bb.y));
-	//clearUnreflectedPoints(5.f);
 	clearUnreflectedContours(5.f, lowSThreshold / 100.f);
 	clearContoursNotContainingEyes();
-	clearSmallContours(eye_1.width, glasses_bb.height, eye_1.height, eye_error);
-	selectBiggestContour();
+	//clearSmallContours(eye_1.width, glasses_bb.height, eye_1.height);
+	//selectBiggestContour();
 	getConvexHulls();
 }
 
@@ -431,20 +504,16 @@ void SimilarityThreshold(int, void*)
 void searchForGlassesFrame(){
 	bool foundFrame = false;
 	
-	while (!foundFrame && eye_error > 1){
-		while (contours.size() < 1 && lowSThreshold > 1){
-			lowSThreshold -= 5;
-			setupScene();
-			std::cout << lowSThreshold << std::endl;
-		}
-		if (contours.size() > 0)
-			foundFrame = true;
-		else{
-			eye_error -= 0.05;
-			lowSThreshold = 100;
-		}
+	while (lowThreshold > 1){
+		//lowSThreshold -= 5;
+		lowThreshold -= 5;
+		CannyThreshold(0, 0);
+		//setupScene();
+		selectPotentialConvex();
+		//std::cout << lowSThreshold << std::endl;
+		std::cout << lowThreshold << std::endl;
 	}
-
+	selectBiggestConvex();
 	drawScene();
 }
 
